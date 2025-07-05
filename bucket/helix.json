@@ -9,7 +9,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/someh2705/helix/releases/download/2025.07.06/helix-2025.07.06-x86_64-windows.zip",
-            "hash": "1699D1F510ED22D48D6B02ACAC1A2FEEB065B222FC772B35B45A186D4984450B"
+            "hash": "1699D1F510ED22D48D6B02ACAC1A2FEEB065B222FC772B35B45A186D4984450B",
             "extract_dir": "helix-2025.07.06-x86_64-windows"
         }
     },
