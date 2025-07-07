@@ -1,5 +1,5 @@
 {
-    "version": "2025.07.06",
+    "version": "25.01.1",
     "description": "A post-modern modal text editor",
     "homepage": "https://helix-editor.com",
     "license": "MPL-2.0",
@@ -8,9 +8,9 @@
     },
     "architecture": {
         "64bit": {
-            "url": "https://github.com/someh2705/helix/releases/download/2025.07.06/helix-2025.07.06-x86_64-windows.zip",
-            "hash": "1699D1F510ED22D48D6B02ACAC1A2FEEB065B222FC772B35B45A186D4984450B",
-            "extract_dir": "helix-2025.07.06-x86_64-windows"
+            "url": "https://github.com/helix-editor/helix/releases/download/25.01.1/helix-25.01.1-x86_64-windows.zip",
+            "hash": "564055657cf24a4ebb0ef929ee2bc40d379431868e06fd82e41a0def01a5a320",
+            "extract_dir": "helix-25.01.1-x86_64-windows"
         }
     },
     "bin": [
