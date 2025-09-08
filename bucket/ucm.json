@@ -6,7 +6,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/unisonweb/unison/releases/download/release%2F0.5.47/ucm-windows-x64.zip",
-            "hash": "7BDE1B190C00AEF7F07E40BBD9D812E07DCA6D7ED1842B934ADA65C28B7AFCF0",
+            "hash": "b5f2288b4b2a092774112753ecd565954db0a2a611d644c9e3e54207d5dafbfe",
         }
     },
     "bin": "ucm.cmd",
@@ -21,3 +21,4 @@
         }
     }
 }
+
