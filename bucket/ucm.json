@@ -1,0 +1,23 @@
+{
+    "version": "0.5.47",
+    "description": "A friendly programming language from the future",
+    "homepage": "https://www.unison-lang.org",
+    "license": "3-clause BSD",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/unisonweb/unison/releases/download/release%2F0.5.47/ucm-windows-x64.zip",
+            "hash": "7BDE1B190C00AEF7F07E40BBD9D812E07DCA6D7ED1842B934ADA65C28B7AFCF0",
+        }
+    },
+    "bin": "ucm.cmd",
+    "checkver": {
+        "github": "https://github.com/unisonweb/unison",
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/unisonweb/unison/releases/download/release%2F$version/ucm-windows-x64.zip"
+            }
+        }
+    }
+}
