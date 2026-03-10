@@ -1,0 +1,21 @@
+{
+    "version": "2.0.1",
+    "description": "A privacy-first platform for knowledge sharing and management (DB build)",
+    "homepage": "https://logseq.com",
+    "license": "AGPL-3.0-only",
+    "url": "https://nightly.link/someh2705/Bucket/actions/artifacts/5849075110.zip",
+    "hash": "dd828daf0acef01843f69e1bb23279c78ddfffd9f259f834a19531d165f0d55e",
+    "pre_install": [
+        "$package = Get-ChildItem $dir -Filter '*.nupkg' | Select-Object -First 1",
+        "if (-not $package) { throw 'Expected a .nupkg file inside the downloaded artifact.' }",
+        "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+        "[System.IO.Compression.ZipFile]::ExtractToDirectory($package.FullName, $dir)",
+        "Remove-Item $package.FullName -Force"
+    ],
+    "shortcuts": [
+        [
+            "lib/net45/Logseq.exe",
+            "Logseq DB"
+        ]
+    ]
+}
