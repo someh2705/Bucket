@@ -1,0 +1,92 @@
+name: Sync Logseq DB
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force a republish even when the version matches the current manifest
+        required: false
+        default: false
+        type: boolean
+      source_run_id:
+        description: Optional Logseq workflow run id to use instead of the latest successful run
+        required: false
+        type: string
+  schedule:
+    - cron: '0 0,12 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: logseqdb-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout bucket
+        uses: actions/checkout@v4
+
+      - name: Prepare Logseq DB payload
+        id: prepare
+        shell: pwsh
+        env:
+          FORCE_SYNC: ${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}
+          SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || '' }}
+        run: |
+          $force = $env:FORCE_SYNC -eq 'true'
+          $sourceRunId = $env:SOURCE_RUN_ID
+
+          .\scripts\sync-logseqdb.ps1 `
+            -Mode prepare `
+            -WorkspaceRoot $PWD.Path `
+            -Repository '${{ github.repository }}' `
+            -Force:$force `
+            -SourceRunId $sourceRunId
+
+      - name: Upload Logseq DB artifact
+        id: upload
+        if: steps.prepare.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.artifact_name }}
+          path: ${{ steps.prepare.outputs.payload_directory }}
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Update manifest
+        if: steps.prepare.outputs.should_publish == 'true'
+        shell: pwsh
+        run: |
+          .\scripts\sync-logseqdb.ps1 `
+            -Mode finalize `
+            -WorkspaceRoot $PWD.Path `
+            -Repository '${{ github.repository }}' `
+            -MetadataPath '${{ steps.prepare.outputs.metadata_path }}' `
+            -UploadedArtifactId '${{ steps.upload.outputs.artifact-id }}' `
+            -ArtifactDigest '${{ steps.upload.outputs.artifact-digest }}'
+
+      - name: Commit manifest update
+        if: steps.prepare.outputs.should_publish == 'true'
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bucket/logseqdb.json
+
+          if (git diff --cached --quiet) {
+            Write-Host 'No manifest changes to commit.'
+            exit 0
+          }
+
+          git commit -m "logseqdb: update to ${{ steps.prepare.outputs.version }}"
+          git push
+
+      - name: Report skipped update
+        if: steps.prepare.outputs.should_publish != 'true'
+        shell: pwsh
+        run: |
+          Write-Host 'No new Logseq DB version was detected. Skipping publish and manifest update.'
