@@ -38,7 +38,6 @@ jobs:
           SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || '' }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: logseqdb-latest
-          RELEASE_ASSET_NAME: logseqdb-latest.nupkg
         run: |
           $force = $env:FORCE_SYNC -eq 'true'
           $sourceRunId = $env:SOURCE_RUN_ID
@@ -48,7 +47,6 @@ jobs:
             -WorkspaceRoot $PWD.Path `
             -Repository '${{ github.repository }}' `
             -ReleaseTag $env:RELEASE_TAG `
-            -ReleaseAssetName $env:RELEASE_ASSET_NAME `
             -Force:$force `
             -SourceRunId $sourceRunId
 
@@ -58,7 +56,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
-          RELEASE_ASSET_NAME: ${{ steps.prepare.outputs.release_asset_name }}
         run: |
           function Invoke-Gh {
             param(
@@ -101,7 +98,7 @@ jobs:
             }
           }
 
-          Invoke-Gh release upload $env:RELEASE_TAG "${{ steps.prepare.outputs.payload_path }}#$env:RELEASE_ASSET_NAME" --clobber
+          Invoke-Gh release upload $env:RELEASE_TAG "${{ steps.prepare.outputs.payload_path }}" --clobber
 
       - name: Update manifest
         if: steps.prepare.outputs.should_publish == 'true'

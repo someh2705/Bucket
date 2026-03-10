@@ -15,7 +15,7 @@ param(
     [string]$SourceRunId,
     [string]$SourceDirectory,
     [string]$ReleaseTag = 'logseqdb-latest',
-    [string]$ReleaseAssetName = 'logseqdb-latest.nupkg',
+    [string]$ReleaseAssetName,
     [switch]$Force,
     [string]$AssetHash
 )
@@ -355,7 +355,7 @@ switch ($Mode) {
             payload_path = $payloadPath
             payload_directory = $payloadDirectory
             release_tag = $ReleaseTag
-            release_asset_name = $ReleaseAssetName
+            release_asset_name = if ($ReleaseAssetName) { $ReleaseAssetName } else { $package.Name }
             asset_hash = $assetHash
             source_run_id = if ($sourceInfo) { $sourceInfo.run_id } else { [string]$SourceRunId }
             source_run_number = if ($sourceInfo) { $sourceInfo.run_number } else { $null }
