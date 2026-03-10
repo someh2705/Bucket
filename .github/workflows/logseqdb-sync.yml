@@ -36,6 +36,7 @@ jobs:
         env:
           FORCE_SYNC: ${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}
           SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $force = $env:FORCE_SYNC -eq 'true'
           $sourceRunId = $env:SOURCE_RUN_ID
@@ -47,13 +48,23 @@ jobs:
             -Force:$force `
             -SourceRunId $sourceRunId
 
-      - name: Upload Logseq DB artifact
-        id: upload
+      - name: Upload Logseq DB nupkg artifact
+        id: upload_raw
         if: steps.prepare.outputs.should_publish == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.prepare.outputs.artifact_name }}
-          path: ${{ steps.prepare.outputs.payload_directory }}
+          name: ${{ steps.prepare.outputs.raw_artifact_name }}
+          path: ${{ steps.prepare.outputs.raw_payload_directory }}
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload Logseq DB Scoop artifact
+        id: upload_portable
+        if: steps.prepare.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.prepare.outputs.portable_artifact_name }}
+          path: ${{ steps.prepare.outputs.portable_payload_directory }}
           if-no-files-found: error
           compression-level: 0
 
@@ -66,8 +77,8 @@ jobs:
             -WorkspaceRoot $PWD.Path `
             -Repository '${{ github.repository }}' `
             -MetadataPath '${{ steps.prepare.outputs.metadata_path }}' `
-            -UploadedArtifactId '${{ steps.upload.outputs.artifact-id }}' `
-            -ArtifactDigest '${{ steps.upload.outputs.artifact-digest }}'
+            -UploadedArtifactId '${{ steps.upload_portable.outputs.artifact-id }}' `
+            -ArtifactDigest '${{ steps.upload_portable.outputs.artifact-digest }}'
 
       - name: Commit manifest update
         if: steps.prepare.outputs.should_publish == 'true'
@@ -82,7 +93,7 @@ jobs:
             exit 0
           }
 
-          git commit -m "logseqdb: update to ${{ steps.prepare.outputs.version }}"
+          git commit -m "logseqdb: update to ${{ steps.prepare.outputs.manifest_version }}"
           git push
 
       - name: Report skipped update
