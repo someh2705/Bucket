@@ -14,9 +14,10 @@ param(
     [string]$SourceArtifactName = 'logseq-win64-builds',
     [string]$SourceRunId,
     [string]$SourceDirectory,
+    [string]$ReleaseTag = 'logseqdb-latest',
+    [string]$ReleaseAssetName = 'logseqdb-latest.nupkg',
     [switch]$Force,
-    [string]$UploadedArtifactId,
-    [string]$ArtifactDigest
+    [string]$AssetHash
 )
 
 Set-StrictMode -Version Latest
@@ -122,8 +123,6 @@ function Get-SourceArtifact {
         return [pscustomobject]@{
             run_id = [string]$RunId
             run_number = [string]$runResponse.run_number
-            run_attempt = [string]$runResponse.run_attempt
-            created_at = [string]$runResponse.created_at
             artifact_id = [string]$artifact.id
             artifact_name = [string]$artifact.name
         }
@@ -141,8 +140,6 @@ function Get-SourceArtifact {
             return [pscustomobject]@{
                 run_id = [string]$run.id
                 run_number = [string]$run.run_number
-                run_attempt = [string]$run.run_attempt
-                created_at = [string]$run.created_at
                 artifact_id = [string]$artifact.id
                 artifact_name = [string]$artifact.name
             }
@@ -171,25 +168,16 @@ function Download-SourceArtifact {
     )
 
     $gh = Get-Command gh -ErrorAction SilentlyContinue
-    if ($gh) {
-        try {
-            Write-Host "Downloading Logseq artifact via gh run download"
-            & gh run download $SourceInfo.run_id -R "$Owner/$Repo" -n $ArtifactName -D $DestinationDirectory
-
-            if ($LASTEXITCODE -eq 0) {
-                return
-            }
-        } catch {
-            Write-Warning "gh run download failed, falling back to nightly.link. $($_.Exception.Message)"
-        }
+    if (-not $gh) {
+        throw 'gh CLI is required but was not found on PATH.'
     }
 
-    $sourceArtifactZip = Join-Path (Split-Path -Path $DestinationDirectory -Parent) 'source-artifact.zip'
-    $sourceArtifactUrl = "https://nightly.link/$Owner/$Repo/actions/artifacts/$($SourceInfo.artifact_id).zip"
+    Write-Host "Downloading Logseq artifact via gh run download"
+    & gh run download $SourceInfo.run_id -R "$Owner/$Repo" -n $ArtifactName -D $DestinationDirectory
 
-    Write-Host "Downloading Logseq artifact from $sourceArtifactUrl"
-    Invoke-WebRequest -Uri $sourceArtifactUrl -OutFile $sourceArtifactZip
-    Expand-Archive -LiteralPath $sourceArtifactZip -DestinationPath $DestinationDirectory -Force
+    if ($LASTEXITCODE -ne 0) {
+        throw "gh run download failed for run '$($SourceInfo.run_id)'."
+    }
 }
 
 function Get-NupkgVersion {
@@ -232,24 +220,6 @@ function Get-NupkgVersion {
     return [string]$versionNode.InnerText
 }
 
-function Expand-NupkgToDirectory {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PackagePath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$DestinationDirectory
-    )
-
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-    if (Test-Path $DestinationDirectory) {
-        Remove-Item -Path $DestinationDirectory -Recurse -Force
-    }
-
-    [System.IO.Compression.ZipFile]::ExtractToDirectory($PackagePath, $DestinationDirectory)
-}
-
 function Get-ManifestVersion {
     param(
         [Parameter(Mandatory = $true)]
@@ -262,12 +232,20 @@ function Get-ManifestVersion {
         return $AppVersion
     }
 
-    if (-not $SourceInfo.run_number -or -not $SourceInfo.run_attempt -or -not $SourceInfo.created_at) {
+    if (-not $SourceInfo.run_number) {
         return $AppVersion
     }
 
-    $buildDate = ([DateTimeOffset]$SourceInfo.created_at).ToUniversalTime().ToString('yyyyMMdd')
-    return "$AppVersion.$buildDate.$($SourceInfo.run_number).$($SourceInfo.run_attempt)"
+    return "$AppVersion.$($SourceInfo.run_number)"
+}
+
+function Get-FileSha256 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
 function New-Directory {
@@ -289,7 +267,7 @@ function New-ManifestText {
         [string]$Version,
 
         [Parameter(Mandatory = $true)]
-        [string]$ArtifactUrl,
+        [string]$AssetUrl,
 
         [Parameter(Mandatory = $true)]
         [string]$Hash
@@ -301,7 +279,7 @@ function New-ManifestText {
     "description": "A privacy-first platform for knowledge sharing and management (DB build)",
     "homepage": "https://logseq.com",
     "license": "AGPL-3.0-only",
-    "url": "$ArtifactUrl",
+    "url": "$AssetUrl",
     "hash": "$Hash",
     "shortcuts": [
         [
@@ -363,29 +341,24 @@ switch ($Mode) {
         $manifestVersion = Get-ManifestVersion -AppVersion $version -SourceInfo $sourceInfo
         $currentVersion = Get-CurrentVersion -ManifestPath $BucketManifestPath
         $shouldPublish = $Force.IsPresent -or ($manifestVersion -ne $currentVersion)
-        $rawPayloadDirectory = Join-Path $WorkRoot 'raw-payload'
-        $portablePayloadDirectory = Join-Path $WorkRoot 'portable-payload'
+        $payloadDirectory = Join-Path $WorkRoot 'payload'
 
-        New-Directory -Path $rawPayloadDirectory
-        Copy-Item -Path $package.FullName -Destination (Join-Path $rawPayloadDirectory $package.Name)
-        Expand-NupkgToDirectory -PackagePath $package.FullName -DestinationDirectory $portablePayloadDirectory
-
-        $releasesFile = Get-ChildItem -Path $resolvedSourceDirectory -Filter 'RELEASES' -File | Select-Object -First 1
-        if ($releasesFile) {
-            Copy-Item -Path $releasesFile.FullName -Destination (Join-Path $rawPayloadDirectory 'RELEASES')
-        }
+        New-Directory -Path $payloadDirectory
+        $payloadPath = Join-Path $payloadDirectory $package.Name
+        Copy-Item -Path $package.FullName -Destination $payloadPath
+        $assetHash = Get-FileSha256 -Path $payloadPath
 
         $metadata = [ordered]@{
             app_version = $version
             manifest_version = $manifestVersion
             package_file = $package.Name
-            raw_payload_directory = $rawPayloadDirectory
-            portable_payload_directory = $portablePayloadDirectory
-            raw_artifact_name = "logseqdb-nupkg-$manifestVersion"
-            portable_artifact_name = "logseqdb-win64-$manifestVersion"
+            payload_path = $payloadPath
+            payload_directory = $payloadDirectory
+            release_tag = $ReleaseTag
+            release_asset_name = $ReleaseAssetName
+            asset_hash = $assetHash
             source_run_id = if ($sourceInfo) { $sourceInfo.run_id } else { [string]$SourceRunId }
             source_run_number = if ($sourceInfo) { $sourceInfo.run_number } else { $null }
-            source_run_attempt = if ($sourceInfo) { $sourceInfo.run_attempt } else { $null }
             source_artifact_id = if ($sourceInfo) { $sourceInfo.artifact_id } else { $null }
         }
 
@@ -394,10 +367,11 @@ switch ($Mode) {
         Write-ActionOutput -Name 'app_version' -Value $metadata.app_version
         Write-ActionOutput -Name 'manifest_version' -Value $metadata.manifest_version
         Write-ActionOutput -Name 'metadata_path' -Value $MetadataPath
-        Write-ActionOutput -Name 'portable_artifact_name' -Value $metadata.portable_artifact_name
-        Write-ActionOutput -Name 'portable_payload_directory' -Value $portablePayloadDirectory
-        Write-ActionOutput -Name 'raw_artifact_name' -Value $metadata.raw_artifact_name
-        Write-ActionOutput -Name 'raw_payload_directory' -Value $rawPayloadDirectory
+        Write-ActionOutput -Name 'payload_path' -Value $metadata.payload_path
+        Write-ActionOutput -Name 'payload_directory' -Value $payloadDirectory
+        Write-ActionOutput -Name 'release_tag' -Value $metadata.release_tag
+        Write-ActionOutput -Name 'release_asset_name' -Value $metadata.release_asset_name
+        Write-ActionOutput -Name 'asset_hash' -Value $metadata.asset_hash
         Write-ActionOutput -Name 'should_publish' -Value ($shouldPublish.ToString().ToLowerInvariant())
         Write-ActionOutput -Name 'version' -Value $manifestVersion
         Write-ActionOutput -Name 'source_artifact_id' -Value ([string]$metadata.source_artifact_id)
@@ -415,12 +389,8 @@ switch ($Mode) {
             throw "Metadata file '$MetadataPath' does not exist."
         }
 
-        if (-not $UploadedArtifactId) {
-            throw 'UploadedArtifactId is required in finalize mode.'
-        }
-
-        if (-not $ArtifactDigest) {
-            throw 'ArtifactDigest is required in finalize mode.'
+        if (-not $AssetHash) {
+            throw 'AssetHash is required in finalize mode.'
         }
 
         if (-not $Repository) {
@@ -428,16 +398,16 @@ switch ($Mode) {
         }
 
         $metadata = Get-Content -Path $MetadataPath -Raw | ConvertFrom-Json
-        $artifactUrl = "https://nightly.link/$Repository/actions/artifacts/$UploadedArtifactId.zip"
-        $manifestHash = $ArtifactDigest.ToLowerInvariant()
-        $manifestText = New-ManifestText -Version $metadata.manifest_version -ArtifactUrl $artifactUrl -Hash $manifestHash
+        $assetUrl = "https://github.com/$Repository/releases/download/$($metadata.release_tag)/$($metadata.release_asset_name)"
+        $manifestHash = $AssetHash.ToLowerInvariant()
+        $manifestText = New-ManifestText -Version $metadata.manifest_version -AssetUrl $assetUrl -Hash $manifestHash
         $manifestDirectory = Split-Path -Path $BucketManifestPath -Parent
 
         New-Item -Path $manifestDirectory -ItemType Directory -Force | Out-Null
         Set-Content -Path $BucketManifestPath -Value $manifestText
 
         Write-ActionOutput -Name 'manifest_path' -Value $BucketManifestPath
-        Write-ActionOutput -Name 'manifest_url' -Value $artifactUrl
+        Write-ActionOutput -Name 'manifest_url' -Value $assetUrl
         Write-ActionOutput -Name 'manifest_hash' -Value $manifestHash
         Write-ActionOutput -Name 'version' -Value ([string]$metadata.manifest_version)
 

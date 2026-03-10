@@ -37,6 +37,8 @@ jobs:
           FORCE_SYNC: ${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}
           SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || '' }}
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: logseqdb-latest
+          RELEASE_ASSET_NAME: logseqdb-latest.nupkg
         run: |
           $force = $env:FORCE_SYNC -eq 'true'
           $sourceRunId = $env:SOURCE_RUN_ID
@@ -45,28 +47,61 @@ jobs:
             -Mode prepare `
             -WorkspaceRoot $PWD.Path `
             -Repository '${{ github.repository }}' `
+            -ReleaseTag $env:RELEASE_TAG `
+            -ReleaseAssetName $env:RELEASE_ASSET_NAME `
             -Force:$force `
             -SourceRunId $sourceRunId
 
-      - name: Upload Logseq DB nupkg artifact
-        id: upload_raw
+      - name: Publish rolling release asset
         if: steps.prepare.outputs.should_publish == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.prepare.outputs.raw_artifact_name }}
-          path: ${{ steps.prepare.outputs.raw_payload_directory }}
-          if-no-files-found: error
-          compression-level: 0
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+          RELEASE_ASSET_NAME: ${{ steps.prepare.outputs.release_asset_name }}
+        run: |
+          function Invoke-Gh {
+            param(
+              [Parameter(ValueFromRemainingArguments = $true)]
+              [string[]]$Arguments
+            )
 
-      - name: Upload Logseq DB Scoop artifact
-        id: upload_portable
-        if: steps.prepare.outputs.should_publish == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.prepare.outputs.portable_artifact_name }}
-          path: ${{ steps.prepare.outputs.portable_payload_directory }}
-          if-no-files-found: error
-          compression-level: 0
+            & gh @Arguments
+            if ($LASTEXITCODE -ne 0) {
+              throw "gh $($Arguments -join ' ') failed."
+            }
+          }
+
+          $releaseNotes = @"
+          Rolling latest Logseq DB build for Scoop.
+
+          - App version: ${{ steps.prepare.outputs.app_version }}
+          - Scoop version: ${{ steps.prepare.outputs.manifest_version }}
+          - Source run: ${{ steps.prepare.outputs.source_run_id }}
+          "@
+
+          gh release view $env:RELEASE_TAG --json tagName 2>$null | Out-Null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if (-not $releaseExists) {
+            Invoke-Gh release create $env:RELEASE_TAG `
+              --target '${{ github.sha }}' `
+              --title 'Logseq DB Latest' `
+              --notes $releaseNotes `
+              --prerelease
+          } else {
+            Invoke-Gh release edit $env:RELEASE_TAG `
+              --title 'Logseq DB Latest' `
+              --notes $releaseNotes `
+              --prerelease
+
+            $release = gh release view $env:RELEASE_TAG --json assets | ConvertFrom-Json
+            foreach ($asset in $release.assets) {
+              Invoke-Gh release delete-asset $env:RELEASE_TAG $asset.name --yes
+            }
+          }
+
+          Invoke-Gh release upload $env:RELEASE_TAG "${{ steps.prepare.outputs.payload_path }}#$env:RELEASE_ASSET_NAME" --clobber
 
       - name: Update manifest
         if: steps.prepare.outputs.should_publish == 'true'
@@ -77,8 +112,7 @@ jobs:
             -WorkspaceRoot $PWD.Path `
             -Repository '${{ github.repository }}' `
             -MetadataPath '${{ steps.prepare.outputs.metadata_path }}' `
-            -UploadedArtifactId '${{ steps.upload_portable.outputs.artifact-id }}' `
-            -ArtifactDigest '${{ steps.upload_portable.outputs.artifact-digest }}'
+            -AssetHash '${{ steps.prepare.outputs.asset_hash }}'
 
       - name: Commit manifest update
         if: steps.prepare.outputs.should_publish == 'true'
