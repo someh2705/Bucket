@@ -11,7 +11,7 @@ param(
     [string]$SourceOwner = 'logseq',
     [string]$SourceRepo = 'logseq',
     [string]$SourceWorkflow = 'build-desktop-release.yml',
-    [string]$SourceArtifactName = 'logseq-win64-builds',
+    [string]$SourceArtifactName = 'logseq-win-x64-builds',
     [string]$SourceRunId,
     [string]$SourceDirectory,
     [string]$ReleaseTag = 'logseqdb-latest',
