@@ -180,44 +180,51 @@ function Download-SourceArtifact {
     }
 }
 
-function Get-NupkgVersion {
+function Get-LogseqZipPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceDirectory
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $packages = Get-ChildItem -Path $SourceDirectory -Filter '*.zip' -File |
+        Where-Object {
+            $_.Name -match '^Logseq-win-(?:x64|64)-.+\.zip$'
+        } |
+        Sort-Object Name -Descending
+
+    foreach ($package in $packages) {
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($package.FullName)
+
+        try {
+            $entry = $archive.Entries | Where-Object { $_.FullName -eq 'Logseq.exe' } | Select-Object -First 1
+
+            if ($entry) {
+                return $package
+            }
+        } finally {
+            $archive.Dispose()
+        }
+    }
+
+    throw "No Logseq application zip containing 'Logseq.exe' was found in '$SourceDirectory'."
+}
+
+function Get-LogseqZipVersion {
     param(
         [Parameter(Mandatory = $true)]
         [string]$PackagePath
     )
 
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+    $packageName = [System.IO.Path]::GetFileName($PackagePath)
+    $match = [regex]::Match($packageName, '^Logseq-win-(?:x64|64)-(?<version>.+)\.zip$')
 
-    try {
-        $entry = $archive.Entries | Where-Object { $_.FullName -like '*.nuspec' } | Select-Object -First 1
-
-        if (-not $entry) {
-            throw "Unable to locate a .nuspec entry in '$PackagePath'."
-        }
-
-        $stream = $entry.Open()
-        $reader = New-Object System.IO.StreamReader($stream)
-
-        try {
-            [xml]$nuspec = $reader.ReadToEnd()
-        } finally {
-            $reader.Dispose()
-            $stream.Dispose()
-        }
-    } finally {
-        $archive.Dispose()
+    if (-not $match.Success) {
+        throw "Unable to determine the Logseq version from '$packageName'."
     }
 
-    $namespaceManager = New-Object System.Xml.XmlNamespaceManager($nuspec.NameTable)
-    $namespaceManager.AddNamespace('n', $nuspec.DocumentElement.NamespaceURI)
-    $versionNode = $nuspec.SelectSingleNode('//n:metadata/n:version', $namespaceManager)
-
-    if (-not $versionNode) {
-        throw "Unable to read the package version from '$PackagePath'."
-    }
-
-    return [string]$versionNode.InnerText
+    return $match.Groups['version'].Value
 }
 
 function Get-ManifestVersion {
@@ -283,7 +290,7 @@ function New-ManifestText {
     "hash": "$Hash",
     "shortcuts": [
         [
-            "lib/net45/Logseq.exe",
+            "Logseq.exe",
             "Logseq DB"
         ]
     ]
@@ -327,17 +334,8 @@ switch ($Mode) {
             $resolvedSourceDirectory = $downloadDirectory
         }
 
-        $packages = Get-ChildItem -Path $resolvedSourceDirectory -Filter '*.nupkg' -File
-
-        if (-not $packages) {
-            throw "No .nupkg file was found in '$resolvedSourceDirectory'."
-        }
-
-        $package = $packages |
-            Sort-Object @{ Expression = { $_.Name -like '*-full.nupkg' }; Descending = $true }, Name |
-            Select-Object -First 1
-
-        $version = Get-NupkgVersion -PackagePath $package.FullName
+        $package = Get-LogseqZipPackage -SourceDirectory $resolvedSourceDirectory
+        $version = Get-LogseqZipVersion -PackagePath $package.FullName
         $manifestVersion = Get-ManifestVersion -AppVersion $version -SourceInfo $sourceInfo
         $currentVersion = Get-CurrentVersion -ManifestPath $BucketManifestPath
         $shouldPublish = $Force.IsPresent -or ($manifestVersion -ne $currentVersion)
