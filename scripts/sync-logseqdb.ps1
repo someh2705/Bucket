@@ -218,7 +218,7 @@ function Get-LogseqZipVersion {
     )
 
     $packageName = [System.IO.Path]::GetFileName($PackagePath)
-    $match = [regex]::Match($packageName, '^Logseq-win-(?:x64|64)-(?<version>.+)\.zip$')
+    $match = [regex]::Match($packageName, '^Logseq-win-(?:x64|64)-(?<version>\d+(?:\.\d+)*)')
 
     if (-not $match.Success) {
         throw "Unable to determine the Logseq version from '$packageName'."
