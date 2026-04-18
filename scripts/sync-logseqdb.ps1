@@ -13,8 +13,9 @@ param(
     [string]$SourceWorkflow = 'build-desktop-release.yml',
     [string]$SourceArtifactName = 'logseq-win-x64-builds',
     [string]$SourceRunId,
+    [string]$SourceRunNumber,
     [string]$SourceDirectory,
-    [string]$ReleaseTag = 'logseqdb-latest',
+    [string]$ReleaseTag,
     [string]$ReleaseAssetName,
     [switch]$Force,
     [string]$AssetHash
@@ -106,7 +107,8 @@ function Get-SourceArtifact {
         [Parameter(Mandatory = $true)]
         [string]$ArtifactName,
 
-        [string]$RunId
+        [string]$RunId,
+        [string]$RunNumber
     )
 
     if ($RunId) {
@@ -128,22 +130,44 @@ function Get-SourceArtifact {
         }
     }
 
-    $runsResponse = Invoke-GitHubJson -Uri "https://api.github.com/repos/$Owner/$Repo/actions/workflows/$Workflow/runs?status=success&per_page=20"
+    $page = 1
 
-    foreach ($run in $runsResponse.workflow_runs) {
-        $artifactsResponse = Invoke-GitHubJson -Uri $run.artifacts_url
-        $artifact = $artifactsResponse.artifacts |
-            Where-Object { $_.name -eq $ArtifactName -and -not $_.expired } |
-            Select-Object -First 1
+    while ($true) {
+        $runsResponse = Invoke-GitHubJson -Uri "https://api.github.com/repos/$Owner/$Repo/actions/workflows/$Workflow/runs?status=success&per_page=100&page=$page"
 
-        if ($artifact) {
-            return [pscustomobject]@{
-                run_id = [string]$run.id
-                run_number = [string]$run.run_number
-                artifact_id = [string]$artifact.id
-                artifact_name = [string]$artifact.name
+        if (-not $runsResponse.workflow_runs -or $runsResponse.workflow_runs.Count -eq 0) {
+            break
+        }
+
+        foreach ($run in $runsResponse.workflow_runs) {
+            if ($RunNumber -and ([string]$run.run_number -ne [string]$RunNumber)) {
+                continue
+            }
+
+            $artifactsResponse = Invoke-GitHubJson -Uri $run.artifacts_url
+            $artifact = $artifactsResponse.artifacts |
+                Where-Object { $_.name -eq $ArtifactName -and -not $_.expired } |
+                Select-Object -First 1
+
+            if ($artifact) {
+                return [pscustomobject]@{
+                    run_id = [string]$run.id
+                    run_number = [string]$run.run_number
+                    artifact_id = [string]$artifact.id
+                    artifact_name = [string]$artifact.name
+                }
             }
         }
+
+        if ($RunNumber) {
+            break
+        }
+
+        $page += 1
+    }
+
+    if ($RunNumber) {
+        throw "No successful Logseq run with run number '$RunNumber' exposed an unexpired '$ArtifactName' artifact."
     }
 
     throw "No recent successful Logseq runs exposed an unexpired '$ArtifactName' artifact."
@@ -246,6 +270,21 @@ function Get-ManifestVersion {
     return "$AppVersion.$($SourceInfo.run_number)"
 }
 
+function Get-ReleaseTag {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestVersion,
+
+        [string]$ConfiguredTag
+    )
+
+    if ($ConfiguredTag) {
+        return $ConfiguredTag
+    }
+
+    return "logseqdb-$ManifestVersion"
+}
+
 function Get-FileSha256 {
     param(
         [Parameter(Mandatory = $true)]
@@ -307,13 +346,14 @@ switch ($Mode) {
 
         if ($SourceDirectory) {
             $resolvedSourceDirectory = (Resolve-Path $SourceDirectory).Path
-            if ($SourceRunId) {
+            if ($SourceRunId -or $SourceRunNumber) {
                 $sourceInfo = Get-SourceArtifact `
                     -Owner $SourceOwner `
                     -Repo $SourceRepo `
                     -Workflow $SourceWorkflow `
                     -ArtifactName $SourceArtifactName `
-                    -RunId $SourceRunId
+                    -RunId $SourceRunId `
+                    -RunNumber $SourceRunNumber
             }
         } else {
             New-Directory -Path $downloadDirectory
@@ -322,7 +362,8 @@ switch ($Mode) {
                 -Repo $SourceRepo `
                 -Workflow $SourceWorkflow `
                 -ArtifactName $SourceArtifactName `
-                -RunId $SourceRunId
+                -RunId $SourceRunId `
+                -RunNumber $SourceRunNumber
 
             Download-SourceArtifact `
                 -SourceInfo $sourceInfo `
@@ -337,6 +378,7 @@ switch ($Mode) {
         $package = Get-LogseqZipPackage -SourceDirectory $resolvedSourceDirectory
         $version = Get-LogseqZipVersion -PackagePath $package.FullName
         $manifestVersion = Get-ManifestVersion -AppVersion $version -SourceInfo $sourceInfo
+        $resolvedReleaseTag = Get-ReleaseTag -ManifestVersion $manifestVersion -ConfiguredTag $ReleaseTag
         $currentVersion = Get-CurrentVersion -ManifestPath $BucketManifestPath
         $shouldPublish = $Force.IsPresent -or ($manifestVersion -ne $currentVersion)
         $payloadDirectory = Join-Path $WorkRoot 'payload'
@@ -352,7 +394,7 @@ switch ($Mode) {
             package_file = $package.Name
             payload_path = $payloadPath
             payload_directory = $payloadDirectory
-            release_tag = $ReleaseTag
+            release_tag = $resolvedReleaseTag
             release_asset_name = if ($ReleaseAssetName) { $ReleaseAssetName } else { $package.Name }
             asset_hash = $assetHash
             source_run_id = if ($sourceInfo) { $sourceInfo.run_id } else { [string]$SourceRunId }
@@ -374,6 +416,7 @@ switch ($Mode) {
         Write-ActionOutput -Name 'version' -Value $manifestVersion
         Write-ActionOutput -Name 'source_artifact_id' -Value ([string]$metadata.source_artifact_id)
         Write-ActionOutput -Name 'source_run_id' -Value ([string]$metadata.source_run_id)
+        Write-ActionOutput -Name 'source_run_number' -Value ([string]$metadata.source_run_number)
 
         if ($shouldPublish) {
             Write-Host "Prepared Logseq DB version $manifestVersion for publishing."
