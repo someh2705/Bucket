@@ -12,7 +12,6 @@ param(
     [string]$SourceRepo = 'logseq',
     [string]$SourceWorkflow = 'build-desktop-release.yml',
     [string]$SourceArtifactName = 'logseq-win-x64-builds',
-    [string]$SourceRunId,
     [string]$SourceRunNumber,
     [string]$SourceDirectory,
     [string]$ReleaseTag,
@@ -107,38 +106,8 @@ function Get-SourceArtifact {
         [Parameter(Mandatory = $true)]
         [string]$ArtifactName,
 
-        [string]$RunId,
         [string]$RunNumber
     )
-
-    if ($RunId) {
-        try {
-            $runResponse = Invoke-GitHubJson -Uri "https://api.github.com/repos/$Owner/$Repo/actions/runs/$RunId"
-            $artifactsResponse = Invoke-GitHubJson -Uri "https://api.github.com/repos/$Owner/$Repo/actions/runs/$RunId/artifacts"
-            $artifact = $artifactsResponse.artifacts |
-                Where-Object { $_.name -eq $ArtifactName -and -not $_.expired } |
-                Select-Object -First 1
-
-            if (-not $artifact) {
-                throw "Artifact '$ArtifactName' was not found on Logseq run '$RunId'."
-            }
-
-            return [pscustomobject]@{
-                run_id = [string]$RunId
-                run_number = [string]$runResponse.run_number
-                artifact_id = [string]$artifact.id
-                artifact_name = [string]$artifact.name
-            }
-        } catch {
-            if (-not $RunNumber) {
-                Write-Warning "Run id '$RunId' was not found. Treating it as a workflow run number instead."
-                $RunNumber = [string]$RunId
-                $RunId = $null
-            } else {
-                throw
-            }
-        }
-    }
 
     $page = 1
 
@@ -356,13 +325,12 @@ switch ($Mode) {
 
         if ($SourceDirectory) {
             $resolvedSourceDirectory = (Resolve-Path $SourceDirectory).Path
-            if ($SourceRunId -or $SourceRunNumber) {
+            if ($SourceRunNumber) {
                 $sourceInfo = Get-SourceArtifact `
                     -Owner $SourceOwner `
                     -Repo $SourceRepo `
                     -Workflow $SourceWorkflow `
                     -ArtifactName $SourceArtifactName `
-                    -RunId $SourceRunId `
                     -RunNumber $SourceRunNumber
             }
         } else {
@@ -372,7 +340,6 @@ switch ($Mode) {
                 -Repo $SourceRepo `
                 -Workflow $SourceWorkflow `
                 -ArtifactName $SourceArtifactName `
-                -RunId $SourceRunId `
                 -RunNumber $SourceRunNumber
 
             Download-SourceArtifact `
@@ -407,7 +374,7 @@ switch ($Mode) {
             release_tag = $resolvedReleaseTag
             release_asset_name = if ($ReleaseAssetName) { $ReleaseAssetName } else { $package.Name }
             asset_hash = $assetHash
-            source_run_id = if ($sourceInfo) { $sourceInfo.run_id } else { [string]$SourceRunId }
+            source_run_id = if ($sourceInfo) { $sourceInfo.run_id } else { $null }
             source_run_number = if ($sourceInfo) { $sourceInfo.run_number } else { $null }
             source_artifact_id = if ($sourceInfo) { $sourceInfo.artifact_id } else { $null }
         }

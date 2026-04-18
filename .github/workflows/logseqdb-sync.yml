@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_run_number:
-        description: Optional Logseq workflow run number to use directly (for example 2145)
+        description: Optional Logseq workflow run number to build directly (for example 2145)
         required: false
         type: string
       force:
@@ -12,10 +12,6 @@ on:
         required: false
         default: false
         type: boolean
-      source_run_id:
-        description: Optional Logseq workflow run id to use instead of the latest successful run
-        required: false
-        type: string
   schedule:
     - cron: '0 0,12 * * *'
 
@@ -40,20 +36,17 @@ jobs:
         env:
           FORCE_SYNC: ${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}
           SOURCE_RUN_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_number || '' }}
-          SOURCE_RUN_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.source_run_id || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           $force = $env:FORCE_SYNC -eq 'true'
           $sourceRunNumber = $env:SOURCE_RUN_NUMBER
-          $sourceRunId = $env:SOURCE_RUN_ID
 
           .\scripts\sync-logseqdb.ps1 `
             -Mode prepare `
             -WorkspaceRoot $PWD.Path `
             -Repository '${{ github.repository }}' `
             -Force:$force `
-            -SourceRunNumber $sourceRunNumber `
-            -SourceRunId $sourceRunId
+            -SourceRunNumber $sourceRunNumber
 
       - name: Publish versioned release asset
         if: steps.prepare.outputs.should_publish == 'true'
@@ -79,7 +72,6 @@ jobs:
 
           - App version: ${{ steps.prepare.outputs.app_version }}
           - Scoop version: ${{ steps.prepare.outputs.manifest_version }}
-          - Source run: ${{ steps.prepare.outputs.source_run_id }}
           - Source run number: ${{ steps.prepare.outputs.source_run_number }}
           "@
 
