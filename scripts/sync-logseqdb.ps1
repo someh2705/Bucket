@@ -112,21 +112,31 @@ function Get-SourceArtifact {
     )
 
     if ($RunId) {
-        $runResponse = Invoke-GitHubJson -Uri "https://api.github.com/repos/$Owner/$Repo/actions/runs/$RunId"
-        $artifactsResponse = Invoke-GitHubJson -Uri "https://api.github.com/repos/$Owner/$Repo/actions/runs/$RunId/artifacts"
-        $artifact = $artifactsResponse.artifacts |
-            Where-Object { $_.name -eq $ArtifactName -and -not $_.expired } |
-            Select-Object -First 1
+        try {
+            $runResponse = Invoke-GitHubJson -Uri "https://api.github.com/repos/$Owner/$Repo/actions/runs/$RunId"
+            $artifactsResponse = Invoke-GitHubJson -Uri "https://api.github.com/repos/$Owner/$Repo/actions/runs/$RunId/artifacts"
+            $artifact = $artifactsResponse.artifacts |
+                Where-Object { $_.name -eq $ArtifactName -and -not $_.expired } |
+                Select-Object -First 1
 
-        if (-not $artifact) {
-            throw "Artifact '$ArtifactName' was not found on Logseq run '$RunId'."
-        }
+            if (-not $artifact) {
+                throw "Artifact '$ArtifactName' was not found on Logseq run '$RunId'."
+            }
 
-        return [pscustomobject]@{
-            run_id = [string]$RunId
-            run_number = [string]$runResponse.run_number
-            artifact_id = [string]$artifact.id
-            artifact_name = [string]$artifact.name
+            return [pscustomobject]@{
+                run_id = [string]$RunId
+                run_number = [string]$runResponse.run_number
+                artifact_id = [string]$artifact.id
+                artifact_name = [string]$artifact.name
+            }
+        } catch {
+            if (-not $RunNumber) {
+                Write-Warning "Run id '$RunId' was not found. Treating it as a workflow run number instead."
+                $RunNumber = [string]$RunId
+                $RunId = $null
+            } else {
+                throw
+            }
         }
     }
 
