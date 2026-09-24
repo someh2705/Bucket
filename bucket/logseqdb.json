@@ -1,10 +1,10 @@
 {
-    "version": "2.0.1.2308",
+    "version": "2.0.1.2309",
     "description": "A privacy-first platform for knowledge sharing and management (DB build)",
     "homepage": "https://logseq.com",
     "license": "AGPL-3.0-only",
-    "url": "https://github.com/someh2705/Bucket/releases/download/logseqdb-2.0.1.2308/Logseq-win-x64-2.0.1-alpha+nightly.20260923.zip",
-    "hash": "9891ac9ab337b871bb905fed13fe725f38414f631a0f8889757244c255f8ebec",
+    "url": "https://github.com/someh2705/Bucket/releases/download/logseqdb-2.0.1.2309/Logseq-win-x64-2.0.1-alpha+nightly.20260923.zip",
+    "hash": "ccfe4ba1b5fffef259cd562fb961528a79f00846af42b067d853a12b387be724",
     "shortcuts": [
         [
             "Logseq.exe",
